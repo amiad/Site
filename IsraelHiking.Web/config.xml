@@ -26,6 +26,9 @@
     <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest/uses-permission" xmlns:android="http://schemas.android.com/apk/res/android">
       <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     </edit-config>
+    <edit-config file="AndroidManifest.xml" mode="merge" target="/manifest/application" xmlns:android="http://schemas.android.com/apk/res/android">
+      <application android:usesCleartextTraffic="true" />
+    </edit-config>
     <config-file parent="/manifest/application/activity" target="AndroidManifest.xml">
       <intent-filter>
         <action android:name="android.intent.action.VIEW" />
