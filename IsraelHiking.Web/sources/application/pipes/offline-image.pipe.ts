@@ -15,7 +15,7 @@ export class OfflineImagePipe implements PipeTransform {
     }
 
     public async transform(value: string, cache: boolean): Promise<string> {
-        // HM TODO: remove this when issue is resolved!
+        // HM TODO: remove this when issue is resolved! - revert in html too
         this.loggingService.debug("Showing image: " + value + ", isOnline: " + this.runningContextService.isOnline + ", cache: " + cache);
         if (!this.runningContextService.isOnline) {
             let data = await this.databaseService.getImageByUrl(value);
@@ -27,7 +27,7 @@ export class OfflineImagePipe implements PipeTransform {
                 .then(async (res: Blob) => this.databaseService.storeImages([{
                     imageUrl: value,
                     data: `data:${res.type};base64,${encode(await new Response(res).arrayBuffer())}`
-                }]));
+                }]), (ex) => this.loggingService.error("Unable to get image: " + value + " " + ex.message));
         }
         return value;
     }
