@@ -2,12 +2,13 @@
 using NetTopologySuite.Features;
 using NetTopologySuite.Geometries;
 using NetTopologySuite.IO;
-using Newtonsoft.Json;
+using NetTopologySuite.IO.Converters;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Xml;
 using System.Xml.Linq;
 
@@ -77,13 +78,9 @@ namespace IsraelHiking.API.Gpx
         /// <returns>The <see cref="byte"/> array</returns>
         public static byte[] ToBytes(this FeatureCollection featureCollection)
         {
-            using var outputStream = new MemoryStream();
-            var writer = new StreamWriter(outputStream);
-            var jsonWriter = new JsonTextWriter(writer);
-            var serializer = GeoJsonSerializer.Create(new GeometryFactory(), 3);
-            serializer.Serialize(jsonWriter, featureCollection);
-            jsonWriter.Flush();
-            return outputStream.ToArray();
+            var options = new JsonSerializerOptions();
+            options.Converters.Add(new GeoJsonConverterFactory(new GeometryFactory()));
+            return JsonSerializer.SerializeToUtf8Bytes(featureCollection, options);
         }
 
         /// <summary>
@@ -93,11 +90,10 @@ namespace IsraelHiking.API.Gpx
         /// <returns>The <see cref="FeatureCollection"/></returns>
         public static FeatureCollection ToFeatureCollection(this byte[] featureCollectionContent)
         {
-            using var stream = new MemoryStream(featureCollectionContent);
-            var serializer = GeoJsonSerializer.Create(new GeometryFactory(), 3);
-            using var streamReader = new StreamReader(stream);
-            using var jsonTextReader = new JsonTextReader(streamReader);
-            return serializer.Deserialize<FeatureCollection>(jsonTextReader);
+            var factory = new GeoJsonConverterFactory(new GeometryFactory());
+            var options = new JsonSerializerOptions();
+            options.Converters.Add(factory);
+            return JsonSerializer.Deserialize<FeatureCollection>(featureCollectionContent, options);
         }
 
         /// <summary>

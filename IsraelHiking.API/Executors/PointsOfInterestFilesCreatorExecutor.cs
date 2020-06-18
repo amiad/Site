@@ -10,8 +10,6 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NetTopologySuite.Features;
-using Newtonsoft.Json;
-using Newtonsoft.Json.Serialization;
 using SixLabors.ImageSharp;
 using System;
 using System.Collections.Concurrent;
@@ -19,6 +17,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
 
@@ -114,9 +113,9 @@ namespace IsraelHiking.API.Executors
             var index = 0;
             while (list.Count > 0)
             {
-                var imageItemsString = JsonConvert.SerializeObject(list.Take(200).ToList(), new JsonSerializerSettings
+                var imageItemsString = JsonSerializer.Serialize(list.Take(200).ToList(), new JsonSerializerOptions
                 {
-                    ContractResolver = new CamelCasePropertyNamesContractResolver()
+                    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
                 });
                 zipStream.PutNextEntry(new ZipEntry($"images/images{index:000}.json") { DateTime = DateTime.Now });
                 StreamUtils.Copy(new MemoryStream(Encoding.UTF8.GetBytes(imageItemsString)), zipStream, new byte[4096]);

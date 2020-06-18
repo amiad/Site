@@ -1,5 +1,4 @@
 ﻿using IsraelHiking.API.Services.Poi;
-using IsraelHiking.Common;
 using IsraelHiking.DataAccessInterfaces;
 using IsraelHiking.DataAccessInterfaces.Repositories;
 using Microsoft.Extensions.Logging;

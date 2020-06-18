@@ -3,9 +3,9 @@ using IsraelHiking.API.Services.Osm;
 using IsraelHiking.Common.Api;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Logging;
-using Newtonsoft.Json;
 using OsmSharp.Changesets;
 using System.Net;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml.Serialization;
@@ -86,7 +86,7 @@ namespace IsraelHiking.API.Controllers
                     };
                     _logger.LogInformation("No specific filters were applied, updating all databases.");
                 }
-                _logger.LogInformation("Starting updating site's databases according to request: " + JsonConvert.SerializeObject(request));
+                _logger.LogInformation("Starting updating site's databases according to request: " + JsonSerializer.Serialize(request));
                 await _osmLatestFileFetcherExecutor.Update(request.DownloadOsmFile, request.UpdateOsmFile);
 
                 await _databasesUpdaterService.Rebuild(request);

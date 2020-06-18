@@ -8,27 +8,151 @@ using Microsoft.Extensions.Options;
 using Nest;
 using NetTopologySuite.Features;
 using NetTopologySuite.Geometries;
-using NetTopologySuite.IO;
+using NetTopologySuite.IO.Converters;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Reflection;
+using System.Runtime.Serialization;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Threading;
 using System.Threading.Tasks;
 using Feature = NetTopologySuite.Features.Feature;
 
 namespace IsraelHiking.DataAccess
 {
-    public class GeoJsonNetSerializer : JsonNetSerializer
+    public class SystemTextJsonSerializer : IElasticsearchSerializer
     {
-        public GeoJsonNetSerializer(IConnectionSettingsValues settings, GeometryFactory geometryFactory) : base(settings)
+        private readonly JsonSerializerOptions _indented = new JsonSerializerOptions { WriteIndented = true };
+        private readonly JsonSerializerOptions _none = new JsonSerializerOptions { WriteIndented = false };
+        private readonly ConcurrentDictionary<string, IPropertyMapping> Properties = new ConcurrentDictionary<string, IPropertyMapping>();
+
+        private static bool TryReturnDefault<T>(Stream stream, out T deserialize)
         {
-            OverwriteDefaultSerializers((s, cvs) =>
+            deserialize = default;
+            return stream == null || stream == Stream.Null || (stream.CanSeek && stream.Length == 0);
+        }
+
+        private static MemoryStream ToMemoryStream(Stream stream)
+        {
+            if (stream is MemoryStream m) return m;
+            var length = stream.CanSeek ? stream.Length : (long?)null;
+            var wrapped = length.HasValue ? new MemoryStream(new byte[length.Value]) : new MemoryStream();
+            stream.CopyTo(wrapped);
+            return wrapped;
+        }
+
+        private static ReadOnlySpan<byte> ToReadOnlySpan(Stream stream)
+        {
+            using var memoryStram = ToMemoryStream(stream);
+
+            if (memoryStram.TryGetBuffer(out var segment))
             {
-                foreach (var converter in GeoJsonSerializer.Create(geometryFactory, 3).Converters)
-                {
-                    s.Converters.Add(converter);
-                }
-            });
+                return segment;
+            }
+            var byteArray = memoryStram.ToArray();
+            return new ReadOnlySpan<byte>(byteArray).Slice(0, byteArray.Length);
+        }
+
+        protected virtual JsonSerializerOptions GetFormatting(SerializationFormatting formatting) => formatting == SerializationFormatting.None ? _none : _indented;
+
+        public object Deserialize(Type type, Stream stream)
+        {
+            if (TryReturnDefault(stream, out object deserialize)) return deserialize;
+
+            var buffered = ToReadOnlySpan(stream);
+            return JsonSerializer.Deserialize(buffered, type, GetFormatting(SerializationFormatting.None));
+        }
+
+        public T Deserialize<T>(Stream stream)
+        {
+            if (TryReturnDefault(stream, out T deserialize)) return deserialize;
+
+            var buffered = ToReadOnlySpan(stream);
+            return JsonSerializer.Deserialize<T>(buffered, GetFormatting(SerializationFormatting.None));
+        }
+
+        public void Serialize(object data, Stream stream, SerializationFormatting formatting = SerializationFormatting.None)
+        {
+            using var writer = new Utf8JsonWriter(stream);
+            if (data == null)
+                JsonSerializer.Serialize(writer, null, typeof(object), GetFormatting(formatting));
+            else
+                JsonSerializer.Serialize(writer, data, data.GetType(), GetFormatting(formatting));
+        }
+
+        public async Task SerializeAsync<T>(T data, Stream stream, SerializationFormatting formatting = SerializationFormatting.None,
+            CancellationToken cancellationToken = default
+        )
+        {
+            if (data == null)
+                await JsonSerializer.SerializeAsync(stream, null, typeof(object), GetFormatting(formatting)).ConfigureAwait(false);
+            else
+                await JsonSerializer.SerializeAsync(stream, data, data.GetType(), GetFormatting(formatting), cancellationToken).ConfigureAwait(false);
+        }
+
+        public Task<object> DeserializeAsync(Type type, Stream stream, CancellationToken cancellationToken = default)
+        {
+            if (TryReturnDefault(stream, out object deserialize)) return Task.FromResult(deserialize);
+
+            return JsonSerializer.DeserializeAsync(stream, type, GetFormatting(SerializationFormatting.None), cancellationToken).AsTask();
+        }
+
+        public Task<T> DeserializeAsync<T>(Stream stream, CancellationToken cancellationToken = default)
+        {
+            if (TryReturnDefault(stream, out T deserialize)) return Task.FromResult(deserialize);
+
+            return JsonSerializer.DeserializeAsync<T>(stream, GetFormatting(SerializationFormatting.None), cancellationToken).AsTask();
+        }
+
+        public virtual IPropertyMapping CreatePropertyMapping(MemberInfo memberInfo)
+        {
+            var memberInfoString = $"{memberInfo.DeclaringType?.FullName}.{memberInfo.Name}";
+            if (Properties.TryGetValue(memberInfoString, out var mapping))
+                return mapping;
+
+            mapping = PropertyMappingFromAttributes(memberInfo);
+            Properties.TryAdd(memberInfoString, mapping);
+            return mapping;
+        }
+
+        private static IPropertyMapping PropertyMappingFromAttributes(MemberInfo memberInfo)
+        {
+            var jsonProperty = memberInfo.GetCustomAttribute<JsonPropertyNameAttribute>(true);
+            var dataMember = memberInfo.GetCustomAttribute<DataMemberAttribute>(true);
+            var ignoreProperty = memberInfo.GetCustomAttribute<JsonIgnoreAttribute>(true);
+            if (jsonProperty == null && ignoreProperty == null && dataMember == null) return null;
+
+            return new PropertyMapping { Name = jsonProperty?.Name ?? dataMember?.Name, Ignore = ignoreProperty != null };
+        }
+    }
+
+    public class SystemTextJsonSerializerWithGeoJson : SystemTextJsonSerializer
+    {
+        private JsonSerializerOptions _noneWithGeoJson;
+        private JsonSerializerOptions _indentedWithGeoJson;
+
+        public SystemTextJsonSerializerWithGeoJson(GeometryFactory geometryFactory)
+        {
+            var factory = new GeoJsonConverterFactory(geometryFactory);
+            _noneWithGeoJson = new JsonSerializerOptions
+            {
+                WriteIndented = false
+            };
+            _indentedWithGeoJson = new JsonSerializerOptions
+            {
+                WriteIndented = true
+            };
+            _noneWithGeoJson.Converters.Add(factory);
+            _indentedWithGeoJson.Converters.Add(factory);
+        }
+
+        protected override JsonSerializerOptions GetFormatting(SerializationFormatting formatting)
+        {
+            return formatting == SerializationFormatting.Indented ? _indentedWithGeoJson : _noneWithGeoJson;
         }
     }
 
@@ -69,7 +193,7 @@ namespace IsraelHiking.DataAccess
             var connectionString = new ConnectionSettings(
                 pool,
                 new HttpConnection(),
-                new SerializerFactory(s => new GeoJsonNetSerializer(s, _geometryFactory)))
+                new SerializerFactory(s => new SystemTextJsonSerializerWithGeoJson(_geometryFactory)))
                 .PrettyJson()
                 .EnableDebugMode()
                 .DisableDirectStreaming();
@@ -101,7 +225,7 @@ namespace IsraelHiking.DataAccess
             _logger.LogInformation("Finished initialing elasticsearch with uri: " + uri);
         }
 
-        private List<T> GetAllItemsByScrolling<T>(ISearchResponse<T> response) where T: class
+        private List<T> GetAllItemsByScrolling<T>(ISearchResponse<T> response) where T : class
         {
             var list = new List<T>();
             list.AddRange(response.Documents.ToList());
